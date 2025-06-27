@@ -1,9 +1,11 @@
 #[cfg(test)]
 mod tests {
   use solana_sdk::{
-    signature::{Keypair, Signer, read_keypair_file},
-    transaction::Transaction,
+    instruction::AccountMeta,
     message::Message,
+    signature::{read_keypair_file, Keypair, Signer},
+    transaction::Transaction,
+    instruction::Instruction,
     // hash::hash
   };
   use solana_program::{
@@ -12,6 +14,7 @@ mod tests {
     // hash::hash
   };
   use solana_client::rpc_client::RpcClient;
+  use solana_sdk_ids::system_program;
   use std::str::FromStr;
 
   
@@ -91,5 +94,70 @@ mod tests {
       .expect("Failed to send transaction");
     
     println!("Success! Check out your TX here: https://explorer.solana.com/tx/{}/?cluster=devnet",signature);
+  }
+
+  #[test]
+  fn enroll() {
+    let rpc_client = RpcClient::new(RPC_URL);
+    let turbin3_prereq_program = Pubkey::from_str("TRBZyQHB3m68FGeVsqTK39Wm4xejadjVhP5MAZaKWDM").unwrap();
+    let collection = Pubkey::from_str("5ebsp5RChCGK7ssRZMVMufgVZhd2kFbNaotcZ5UvytN2").unwrap();
+    let mpl_core_program = Pubkey::from_str("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d").unwrap();
+    let system_program = system_program::id();
+    
+    let keypair = read_keypair_file("src/wallets/Turbin3-wallet.json").expect("Couldn't find Turbin3 wallet file");
+    let signer_pubkey = keypair.pubkey();
+    let seeds = &[b"prereqs", signer_pubkey.as_ref()];
+    let (prereq_pda, _bump) = Pubkey::find_program_address(
+      seeds,
+      &turbin3_prereq_program
+    );
+    
+    let mint = read_keypair_file("src/wallets/mint-wallet.json").expect("Couldn't find mint wallet file");
+    // println!("mint public: {:?}", &mint.pubkey());
+    // println!("mint secret: {:?}", &mint.to_bytes());
+
+    let (authority, _bump_auth) = Pubkey::find_program_address(
+      &[b"collection", collection.as_ref()],
+      &turbin3_prereq_program
+    );
+    // println!("authority: {}", &authority);
+
+    // The discriminator uniquely identifies the instruction your program expects.
+    let data = vec![77, 124, 82, 163, 21, 133, 181, 206];
+
+    // Use new for accounts that the instruction writes to and new_readonly for accounts that are read-only.
+    // The 'true' flag indicates the account must sign the transaction.
+    let accounts = vec![
+      AccountMeta::new(keypair.pubkey(), true), // user signer
+      AccountMeta::new(prereq_pda, false), // PDA account
+      AccountMeta::new(mint.pubkey(), true), // mint keypair
+      AccountMeta::new(collection, false), // collection
+      AccountMeta::new_readonly(authority, false), // authority (PDA)
+      AccountMeta::new_readonly(mpl_core_program, false), // mpl core program
+      AccountMeta::new_readonly(system_program, false), // system program
+    ];
+
+    let recent_blockhash = rpc_client
+      .get_latest_blockhash()
+      .expect("Failed to get recent blockhash");
+
+    let instruction = Instruction {
+      program_id: turbin3_prereq_program,
+      accounts,
+      data,
+    };
+
+    let transaction = Transaction::new_signed_with_payer(
+      &[instruction],
+      Some(&keypair.pubkey()),
+      &[&keypair, &mint],
+      recent_blockhash,
+    );
+
+    let signature = rpc_client
+    .send_and_confirm_transaction(&transaction)
+    .expect("Failed to send transaction");
+
+    println!("Success! Check out your TX here:\nhttps://explorer.solana.com/tx/{}/?cluster=devnet", signature);
   }
 }
